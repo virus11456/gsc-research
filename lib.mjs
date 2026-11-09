@@ -69,26 +69,49 @@ export function filterAndSortQueries(rows, limit = 30) {
     .slice(0, limit);
 }
 
+// 中日韓字沒有空格：連續字串切成相鄰兩字（bigram）；通用詞的 bigram 不列入比對
+export const CJK_STOP_BIGRAMS = new Set([
+  '包車', '攻略', '推薦', '景點', '自由', '由行', '一日', '日遊', '價格', '費用',
+]);
+export const MATCH_THRESHOLDS = Object.freeze({ cjk: 0.6, latin: 0.7 });
+const CJK = '\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff\\u3040-\\u30ff\\uac00-\\ud7af';
+const CJK_PATTERN = new RegExp(`[${CJK}]`, 'u');
+const SEGMENT_PATTERN = new RegExp(`[${CJK}]+|[a-z0-9]+(?:\\.[a-z0-9]+)*`, 'gu');
+
 export function tokenize(value) {
-  return [...new Set(String(value ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af\s-]/gu, ' ')
-    .split(/[\s-]+/)
-    .map((token) => (token.endsWith('s') && token.length > 3 ? token.slice(0, -1) : token))
-    .filter((token) => token.length > 1 && !STOP_WORDS.has(token)))];
+  const tokens = [];
+  for (const segment of String(value ?? '').toLowerCase().match(SEGMENT_PATTERN) ?? []) {
+    if (CJK_PATTERN.test(segment)) {
+      const chars = [...segment];
+      if (chars.length === 1) continue;
+      for (let i = 0; i < chars.length - 1; i += 1) {
+        const bigram = chars[i] + chars[i + 1];
+        if (!CJK_STOP_BIGRAMS.has(bigram) && !STOP_WORDS.has(bigram)) tokens.push(bigram);
+      }
+    } else {
+      const token = segment.endsWith('s') && segment.length > 3 ? segment.slice(0, -1) : segment;
+      if (token.length > 1 && !STOP_WORDS.has(token)) tokens.push(token);
+    }
+  }
+  return [...new Set(tokens)];
 }
 
-export function matchQuery(query, posts, threshold = 0.7) {
+function decodeSlug(slug) {
+  try { return decodeURIComponent(String(slug ?? '')); } catch { return String(slug ?? ''); }
+}
+
+export function matchQuery(query, posts, threshold) {
   const queryTokens = tokenize(query);
   if (queryTokens.length === 0) return { type: 'NEW', ratio: 0, post: null };
+  const limit = threshold ?? (CJK_PATTERN.test(String(query ?? '')) ? MATCH_THRESHOLDS.cjk : MATCH_THRESHOLDS.latin);
   let best = { ratio: 0, post: null };
   for (const post of posts) {
-    const postTokens = new Set(tokenize(`${post.slug ?? ''} ${post.title ?? ''}`));
+    const postTokens = new Set(tokenize(`${decodeSlug(post.slug)} ${stripHtml(post.title)}`));
     const matched = queryTokens.filter((token) => postTokens.has(token)).length;
     const ratio = matched / queryTokens.length;
     if (ratio > best.ratio) best = { ratio, post };
   }
-  return best.ratio >= threshold ? { type: 'REFRESH', ...best } : { type: 'NEW', ...best };
+  return best.ratio >= limit ? { type: 'REFRESH', ...best } : { type: 'NEW', ...best };
 }
 
 export function classifyQueries(rows, posts) {
@@ -122,7 +145,7 @@ export function renderMarkdown(site, classified, generatedAt = new Date()) {
     '',
     '| # | Query | Impressions | Position | CTR | Match check |',
     '|---:|---|---:|---:|---:|---|',
-    ...fresh.map((row, i) => `| ${i + 1} | ${escapeCell(row.query)} | ${row.impressions} | ${row.position.toFixed(1)} | ${(row.ctr * 100).toFixed(1)}% | No match ≥ 70% |`),
+    ...fresh.map((row, i) => `| ${i + 1} | ${escapeCell(row.query)} | ${row.impressions} | ${row.position.toFixed(1)} | ${(row.ctr * 100).toFixed(1)}% | No match (best ${(row.match.ratio * 100).toFixed(0)}%) |`),
     '',
     '## REFRESH candidates (existing article to expand)',
     '',

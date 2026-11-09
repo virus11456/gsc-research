@@ -63,3 +63,22 @@ test('renders NEW and REFRESH tables', () => {
   assert.match(md, /\| 1 \| a\\\|b \| 9 \| 12\.0 \| 1\.0% \|/);
   assert.match(md, /\[Tokyo\]\(https:\/\/x\/t\) \| 100% \| 9\.0 \| 6 \|/);
 });
+
+test('Chinese queries use bigram overlap (SIM-194)', () => {
+  const refresh = [
+    ['首爾包車推薦', { slug: 'seoul-private-car', title: '<strong>首爾包車推薦</strong>' }],
+    ['东京親子景點', { slug: 'tokyo-family', title: '东京親子旅遊景點整理' }],
+    ['濟州島自由行', { slug: '%E6%BF%9F%E5%B7%9E%E5%B3%B6%E8%87%AA%E7%94%B1%E8%A1%8C', title: 'Jeju travel' }],
+  ];
+  for (const [q, post] of refresh) assert.equal(matchQuery(q, [post]).type, 'REFRESH', q);
+  const fresh = [
+    ['大阪包車推薦', { slug: 'seoul', title: '首爾包車推薦' }],
+    ['北海道冬季自駕', { slug: 'hokkaido', title: '北海道夏季花田' }],
+    ['釜山海雲台住宿', { slug: 'busan', title: '首爾明洞住宿推薦' }],
+  ];
+  for (const [q, post] of fresh) assert.equal(matchQuery(q, [post]).type, 'NEW', q);
+});
+
+test('CJK tokenize drops common bigrams and keeps English rules', () => {
+  assert.deepEqual(tokenize('首爾包車 hotels'), ['首爾', '爾包', 'hotel']);
+});
