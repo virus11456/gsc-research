@@ -7,6 +7,12 @@
 Service Account：`gsc-reader@simples-gsc.iam.gserviceaccount.com`（已加進三站 GSC，權限「限制」）。
 金鑰放 `~/.config/gsc/service-account.json`（`chmod 600`），或用 `GSC_SA_KEY` 指定路徑。金鑰不要進 Git、不要貼到對話。
 
+## 比對規則
+
+英文以單字比對，門檻為 70%；中日韓字切成相鄰二字詞（bigram），門檻為 60%。
+包車、攻略、推薦等通用詞不列入比對。
+比對文章前會先 URL decode slug，並移除 title 中的 HTML。
+
 ## 執行
 
 ```sh
